@@ -211,6 +211,8 @@ FE_RaviartThomasNodal<dim>::initialize_support_points(const unsigned int deg)
       for (unsigned int k = 0; k < quadrature->size(); ++k)
         this->generalized_support_points[current++] = quadrature->point(k);
     }
+  compute_tensor_product_basis(deg);
+  sort_generalized_support_points_lexicographically();
   Assert(current == this->dofs_per_cell, ExcInternalError());
 }
 
@@ -766,6 +768,401 @@ FE_RaviartThomasNodal<dim>::get_subface_interpolation_matrix(
       Assert(std::fabs(sum - 1) < 2e-13 * this->degree * (dim - 1),
              ExcInternalError());
     }
+}
+
+
+
+/*
+ * Functions for real tensor product behaviour
+ */
+
+
+/*
+ * We replicate the behaviour of PolyTensor::shape_value_component by composing
+ * the value from one dimensional polynomials. Currently only in two dimensions
+ */
+template <int dim>
+double
+FE_RaviartThomasNodal<dim>::shape_value_component_as_tensor_product(
+  const unsigned int i,
+  const Point<dim> & p,
+  const unsigned int component)
+{
+  unsigned int lexicographic_index = normal_index_to_lexicographic(i);
+  unsigned int d                   = lexicographic_index /
+                   this->points_per_dimension; // d is the component where the
+  // i-th basisfunction has support
+  if (d != component)
+    return 0.;
+  unsigned int index_in_dimension =
+    lexicographic_index % this->points_per_dimension;
+  if (dim == 1)
+    {
+      double xpolval = nodal_basis_of_high[index_in_dimension].value(p(0));
+      return xpolval;
+    }
+  if (dim == 2)
+    {
+      unsigned int xindex = 0;
+      unsigned int yindex = 0;
+      if (d == 0) // evaluate either one dimensional basisfunction for high
+                  // dimensional space i.e. Q_k+1 or low i.e. Q_k
+        {
+          xindex         = index_in_dimension / this->nodal_basis_of_low.size();
+          yindex         = index_in_dimension % this->nodal_basis_of_low.size();
+          double xpolval = nodal_basis_of_high[xindex].value(p(0));
+          double ypolval = nodal_basis_of_low[yindex].value(p(1));
+          return xpolval * ypolval;
+        }
+      else
+        {
+          xindex = index_in_dimension / this->nodal_basis_of_high.size();
+          yindex = index_in_dimension % this->nodal_basis_of_high.size();
+          double xpolval = nodal_basis_of_low[xindex].value(p(0));
+          double ypolval = nodal_basis_of_high[yindex].value(p(1));
+          return xpolval * ypolval;
+        }
+    }
+  if (dim == 3)
+    {
+      unsigned int xindex = 0;
+      unsigned int yindex = 0;
+      unsigned int zindex = 0;
+      if (d == 0)
+        {
+          xindex = index_in_dimension / (this->nodal_basis_of_low.size() *
+                                         this->nodal_basis_of_low.size());
+          yindex = (index_in_dimension % (this->nodal_basis_of_low.size() *
+                                          this->nodal_basis_of_low.size())) /
+                   this->nodal_basis_of_low.size();
+          zindex = (index_in_dimension % (this->nodal_basis_of_low.size() *
+                                          this->nodal_basis_of_low.size())) %
+                   this->nodal_basis_of_low.size();
+          double xpolval = nodal_basis_of_high[xindex].value(p(0));
+          double ypolval = nodal_basis_of_low[yindex].value(p(1));
+          double zpolval = nodal_basis_of_low[zindex].value(p(2));
+          return xpolval * ypolval * zpolval;
+        }
+      if (d == 1)
+        {
+          xindex = index_in_dimension / (this->nodal_basis_of_high.size() *
+                                         this->nodal_basis_of_low.size());
+          yindex = (index_in_dimension % (this->nodal_basis_of_high.size() *
+                                          this->nodal_basis_of_low.size())) /
+                   this->nodal_basis_of_low.size();
+          zindex = (index_in_dimension % (this->nodal_basis_of_high.size() *
+                                          this->nodal_basis_of_low.size())) %
+                   this->nodal_basis_of_low.size();
+          double xpolval = nodal_basis_of_low[xindex].value(p(0));
+          double ypolval = nodal_basis_of_high[yindex].value(p(1));
+          double zpolval = nodal_basis_of_low[zindex].value(p(2));
+          return xpolval * ypolval * zpolval;
+        }
+      if (d == 2)
+        {
+          xindex = index_in_dimension / (this->nodal_basis_of_low.size() *
+                                         this->nodal_basis_of_high.size());
+          yindex = (index_in_dimension % (this->nodal_basis_of_low.size() *
+                                          this->nodal_basis_of_high.size())) /
+                   this->nodal_basis_of_high.size();
+          zindex = (index_in_dimension % (this->nodal_basis_of_low.size() *
+                                          this->nodal_basis_of_high.size())) %
+                   this->nodal_basis_of_high.size();
+          double xpolval = nodal_basis_of_low[xindex].value(p(0));
+          double ypolval = nodal_basis_of_low[yindex].value(p(1));
+          double zpolval = nodal_basis_of_high[zindex].value(p(2));
+          return xpolval * ypolval * zpolval;
+        }
+    }
+  return 0;
+}
+
+/*
+ * Find out how to translate lexicographic numbering from and to dealii
+ * numbering of dofs
+ */
+template <int dim>
+void
+FE_RaviartThomasNodal<dim>::sort_generalized_support_points_lexicographically()
+{
+  assert(this->lexicographic_support_points.size() >
+         0); // tensor product bases are not yet generated
+  AssertDimension(this->generalized_support_points.size(),
+                  lexicographic_support_points.size());
+  this->lexicographic_transformation =
+    std::vector<unsigned int>(lexicographic_support_points.size());
+  this->inverse_lexicographic_transformation =
+    std::vector<unsigned int>(lexicographic_support_points.size());
+  for (unsigned int d = 0; d < dim; d++)
+    {
+      /*
+       * for each component find faces which have dofs for that component and
+       * find the point where dofs for the interior of that component start,
+       * then compare support points with the lexicographic support points and
+       * save results
+       */
+      unsigned int face1_begin = 0; // default value which is impossible
+      unsigned int face2_begin = 0;
+      unsigned int interior_begin =
+        GeometryInfo<dim>::faces_per_cell * this->dofs_per_face +
+        interior_points_per_dimension * d;
+      unsigned int support_point_iterator = 0;
+      if (dim > 1)
+        {
+          for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; f++)
+            {
+              if (GeometryInfo<dim>::unit_normal_direction[f] == d)
+                {
+                  if (face1_begin == 0)
+                    face1_begin = support_point_iterator;
+                  else
+                    face2_begin = support_point_iterator;
+                }
+              support_point_iterator += this->dofs_per_face;
+            }
+        }
+      for (unsigned int lex_point_index = points_per_dimension * d;
+           lex_point_index < points_per_dimension * (d + 1);
+           lex_point_index++)
+        {
+          Point<dim> lexicographic_point =
+            lexicographic_support_points[lex_point_index];
+          if (dim > 1)
+            for (unsigned int i = 0; i < this->dofs_per_face; i++)
+              {
+                if (this->generalized_support_points[face1_begin + i] ==
+                    lexicographic_point)
+                  {
+                    lexicographic_transformation[face1_begin + i] =
+                      lex_point_index;
+                    inverse_lexicographic_transformation[lex_point_index] =
+                      face1_begin + i;
+                  }
+                if (this->generalized_support_points[face2_begin + i] ==
+                    lexicographic_point)
+                  {
+                    lexicographic_transformation[face2_begin + i] =
+                      lex_point_index;
+                    inverse_lexicographic_transformation[lex_point_index] =
+                      face2_begin + i;
+                  }
+              }
+          for (unsigned int i = 0; i < this->interior_points_per_dimension; i++)
+            {
+              if (this->generalized_support_points[interior_begin + i] ==
+                  lexicographic_point)
+                {
+                  lexicographic_transformation[interior_begin + i] =
+                    lex_point_index;
+                  inverse_lexicographic_transformation[lex_point_index] =
+                    interior_begin + i;
+                }
+            }
+        }
+    }
+}
+
+template <int dim>
+unsigned int
+FE_RaviartThomasNodal<dim>::lexicographic_index_to_normal(unsigned int i)
+{
+  return inverse_lexicographic_transformation[i];
+}
+template <int dim>
+unsigned int
+FE_RaviartThomasNodal<dim>::normal_index_to_lexicographic(unsigned int i)
+{
+  return lexicographic_transformation[i];
+}
+/*
+ * Compute one dimensional nodal bases for the "high" dimensional Q_k+1 and
+ * "low" dimensional Q_k space.
+ */
+template <int dim>
+void
+FE_RaviartThomasNodal<dim>::compute_tensor_product_basis(const unsigned int deg)
+{
+  assert(this->points_per_dimension != 0); // No degrees of Freedom are defined
+  // first define Gauss points for interior, here high and low is switched since
+  // low does not have boundary points yet.
+  QGauss<1>             high_interior(deg + 1);
+  QGauss<1>             low_interior(deg);
+  std::vector<Point<1>> low  = high_interior.get_points();
+  std::vector<Point<1>> high = {Point<1>(0.)};
+  high.insert(high.end(),
+              low_interior.get_points().begin(),
+              low_interior.get_points().end());
+  high.emplace_back(1.); // add boundary points
+  std::vector<Polynomials::Polynomial<double>> basis_of_high =
+    Polynomials::LagrangeEquidistant::generate_complete_basis(deg + 1);
+  std::vector<Polynomials::Polynomial<double>> basis_of_low =
+    Polynomials::LagrangeEquidistant::generate_complete_basis(deg);
+  // compute node_matrices
+  FullMatrix<double> N_high(deg + 2, deg + 2); // node_matrix for Q_k+1
+  FullMatrix<double> N_low(deg + 1, deg + 1);  // node matrix for Q_k
+  for (std::size_t i = 0; i < deg + 2; i++)
+    {
+      for (std::size_t j = 0; j < deg + 2; j++)
+        {
+          if (i < deg + 1 && j < deg + 1)
+            {
+              N_low(i, j) = basis_of_low[i].value(low[j](0));
+            }
+          N_high(i, j) = basis_of_high[i].value(high[j](0));
+        }
+    }
+
+  FullMatrix<double> N_high_invert(deg + 2, deg + 2);
+  N_high_invert.invert(N_high);
+  FullMatrix<double> N_low_invert(deg + 1, deg + 1);
+  N_low_invert.invert(N_low);
+
+  nodal_basis_of_high = std::vector<Polynomials::Polynomial<double>>(deg + 2);
+  nodal_basis_of_low  = std::vector<Polynomials::Polynomial<double>>(deg + 1);
+  for (std::size_t i = 0; i < deg + 2;
+       i++) // apply inverse node matrices to obtain nodal basis
+    {
+      if (i < deg + 1)
+        nodal_basis_of_low[i] = Polynomials::Polynomial<double>(deg + 1);
+      nodal_basis_of_high[i] = Polynomials::Polynomial<double>(deg + 2);
+      for (std::size_t j = 0; j < deg + 2; j++)
+        {
+          if (j < deg + 1 && i < deg + 1)
+            {
+              Polynomials::Polynomial<double> pol  = basis_of_low[j];
+              double                          scal = N_low_invert(i, j);
+              pol *= scal;
+              nodal_basis_of_low[i] += pol;
+              std::cout << nodal_basis_of_low[i].value(low[i](0)) << "low\n";
+            }
+          Polynomials::Polynomial<double> pol  = basis_of_high[j];
+          double                          scal = N_high_invert(i, j);
+          pol *= scal;
+          nodal_basis_of_high[i] += pol;
+          std::cout << nodal_basis_of_high[i].value(high[i](0)) << "high\n";
+        }
+    }
+  // construct and number lexicographic support points, such that we can later
+  // find the renumbering from normal numbering to lexicographic numbering
+  switch (dim)
+    {
+      case 1:
+        for (auto &i : high)
+          lexicographic_support_points.emplace_back(Point<dim>(i(0)));
+        break;
+      case 2:
+        for (auto &i : high)
+          for (auto &j : low)
+            lexicographic_support_points.emplace_back(Point<dim>(i(0), j(0)));
+        for (auto &i : low)
+          for (auto &j : high)
+            lexicographic_support_points.emplace_back(Point<dim>(i(0), j(0)));
+        break;
+      case 3:
+        for (auto &i : high)
+          for (auto &j : low)
+            for (auto &k : low)
+              lexicographic_support_points.emplace_back(
+                Point<dim>(i(0), j(0), k(0)));
+        for (auto &i : low)
+          for (auto &j : high)
+            for (auto &k : low)
+              lexicographic_support_points.emplace_back(
+                Point<dim>(i(0), j(0), k(0)));
+        for (auto &i : low)
+          for (auto &j : low)
+            for (auto &k : high)
+              lexicographic_support_points.emplace_back(
+                Point<dim>(i(0), j(0), k(0)));
+        break;
+    }
+}
+
+using namespace internal::MatrixFreeFunctions;
+template <int dim>
+template <typename Number>
+void
+FE_RaviartThomasNodal<dim>::fill_shapeInfo(
+  internal::MatrixFreeFunctions::ShapeInfo<Number> &shapeInfo,
+  Quadrature<1>                                     quad)
+{
+  UnivariateShapeData<Number> lower;
+  UnivariateShapeData<Number> higher;
+  lower.element_type              = tensor_symmetric;
+  higher.element_type             = tensor_symmetric;
+  lower.fe_degree                 = nodal_basis_of_low.size();
+  higher.fe_degree                = nodal_basis_of_high.size();
+  lower.quadrature                = quad;
+  higher.quadrature               = quad;
+  lower.n_q_points_1d             = quad.size();
+  higher.n_q_points_1d            = quad.size();
+  lower.nodal_at_cell_boundaries  = false;
+  higher.nodal_at_cell_boundaries = true;
+  lower.shape_values =
+    AlignedVector<Number>(lower.fe_degree * lower.n_q_points_1d);
+  higher.shape_values =
+    AlignedVector<Number>(higher.fe_degree * higher.n_q_points_1d);
+  lower.shape_gradients =
+    AlignedVector<Number>(lower.fe_degree * lower.n_q_points_1d);
+  higher.shape_gradients =
+    AlignedVector<Number>(higher.fe_degree * higher.n_q_points_1d);
+  lower.shape_hessians =
+    AlignedVector<Number>(lower.fe_degree * lower.n_q_points_1d);
+  higher.shape_hessians =
+    AlignedVector<Number>(higher.fe_degree * higher.n_q_points_1d);
+  lower.shape_data_on_face[0].resize(3 * lower.fe_degree);
+  lower.shape_data_on_face[1].resize(3 * lower.fe_degree);
+  higher.shape_data_on_face[0].resize(3 * higher.fe_degree);
+  higher.shape_data_on_face[1].resize(3 * higher.fe_degree);
+  for (std::size_t i = 0; i < lower.fe_degree; i++)
+    {
+      for (std::size_t j = 0; j < lower.n_q_points_1d; j++)
+        {
+          lower.shape_values[i * lower.n_q_points_1d + j] =
+            nodal_basis_of_low[i].value(lower.quadrature[j]);
+          lower.shape_gradients[i * lower.n_q_points_1d + j] =
+            nodal_basis_of_low[i].derivative().value(lower.quadrature[j]);
+          lower.shape_hessians[i * lower.n_q_points_1d + j] =
+            nodal_basis_of_low[i].derivative().derivative().value(
+              lower.quadrature[j]);
+        }
+      lower.shape_data_on_face[0][i] = nodal_basis_of_low[i].value(0);
+      lower.shape_data_on_face[0][i + lower.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(0);
+      lower.shape_data_on_face[0][i + lower.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(0);
+      lower.shape_data_on_face[1][i] = nodal_basis_of_low[i].value(1);
+      lower.shape_data_on_face[1][i + lower.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(1);
+      lower.shape_data_on_face[1][i + lower.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(1);
+    }
+  for (std::size_t i = 0; i < higher.fe_degree; i++)
+    {
+      for (std::size_t j = 0; j < higher.n_q_points_1d; j++)
+        {
+          higher.shape_values[i * higher.n_q_points_1d + j] =
+            nodal_basis_of_low[i].value(higher.quadrature[j]);
+          higher.shape_gradients[i * higher.n_q_points_1d + j] =
+            nodal_basis_of_low[i].derivative().value(higher.quadrature[j]);
+          higher.shape_hessians[i * higher.n_q_points_1d + j] =
+            nodal_basis_of_low[i].derivative().derivative().value(
+              higher.quadrature[j]);
+        }
+      higher.shape_data_on_face[0][i] = nodal_basis_of_low[i].value(0);
+      higher.shape_data_on_face[0][i + higher.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(0);
+      higher.shape_data_on_face[0][i + higher.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(0);
+      higher.shape_data_on_face[1][i] = nodal_basis_of_low[i].value(1);
+      higher.shape_data_on_face[1][i + higher.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(1);
+      higher.shape_data_on_face[1][i + higher.fe_degree] =
+        nodal_basis_of_low[i].derivative().value(1);
+    }
+  shapeInfo.data.emplace_back(lower);
+  shapeInfo.data.emplace_back(higher);
+  shapeInfo.lexicographic_numbering = lexicographic_transformation;
 }
 
 

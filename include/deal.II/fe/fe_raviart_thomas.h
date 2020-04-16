@@ -27,6 +27,8 @@
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/fe_poly_tensor.h>
 
+#include <deal.II/matrix_free/shape_info.h>
+
 #include <vector>
 
 DEAL_II_NAMESPACE_OPEN
@@ -320,7 +322,49 @@ public:
   compare_for_domination(const FiniteElement<dim> &fe_other,
                          const unsigned int codim = 0) const override final;
 
+  double
+  shape_value_component_as_tensor_product(const unsigned int i,
+                                          const Point<dim> & p,
+                                          const unsigned int component);
+  template <typename Number>
+  void
+  fill_shapeInfo(internal::MatrixFreeFunctions::ShapeInfo<Number> &shapeInfo,
+                 Quadrature<1>                                     quad);
+
 private:
+  /**
+   * convert lexicographic index to dealii normal index
+   */
+  unsigned int
+  lexicographic_index_to_normal(unsigned int i);
+  /**
+   * convert deal-ii standard index to lexicographic index
+   */
+  unsigned int
+  normal_index_to_lexicographic(unsigned int i);
+  /**
+   * compute one dimensional polynomial bases and lexicographic support points
+   */
+  void
+  compute_tensor_product_basis(const unsigned int deg);
+
+  /**
+   * Compute transformation between lexicographic support points and normal
+   * support points
+   */
+  void
+  sort_generalized_support_points_lexicographically();
+
+
+  unsigned int points_per_dimension;
+  std::vector<unsigned int>
+                            inverse_lexicographic_transformation; // lex to normal
+  std::vector<unsigned int> lexicographic_transformation; // normal to lex
+  unsigned int              interior_points_per_dimension;
+  std::vector<Polynomials::Polynomial<double>> nodal_basis_of_high;
+  std::vector<Polynomials::Polynomial<double>> nodal_basis_of_low;
+  std::vector<Point<dim>>                      lexicographic_support_points;
+
   /**
    * Only for internal use. Its full name is @p get_dofs_per_object_vector
    * function and it creates the @p dofs_per_object vector that is needed
