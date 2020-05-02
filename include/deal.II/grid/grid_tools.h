@@ -3132,6 +3132,19 @@ namespace GridTools
 
 
 
+  // This specialization is defined here so that the general template in the
+  // source file doesn't need to have further 1D overloads for the internal
+  // functions it calls.
+  template <>
+  inline Triangulation<1, 1>::DistortedCellList
+  fix_up_distorted_child_cells(const Triangulation<1, 1>::DistortedCellList &,
+                               Triangulation<1, 1> &)
+  {
+    return {};
+  }
+
+
+
   template <int dim, typename Predicate, int spacedim>
   void
   transform(const Predicate &             predicate,
@@ -3898,8 +3911,9 @@ namespace GridTools
 #    else
     constexpr int dim      = MeshType::dimension;
     constexpr int spacedim = MeshType::space_dimension;
-    auto tria = static_cast<const parallel::TriangulationBase<dim, spacedim> *>(
-      &mesh.get_triangulation());
+    auto          tria =
+      dynamic_cast<const parallel::TriangulationBase<dim, spacedim> *>(
+        &mesh.get_triangulation());
     Assert(
       tria != nullptr,
       ExcMessage(
