@@ -85,7 +85,7 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
 {
   Triangulation<dim> triangulation;
   const auto         rt_degree = fe_degree - 1; // see documentation of FE
-  FE_RaviartThomasNodal_new<dim> fe(rt_degree);
+  FE_RaviartThomasNodal<dim> fe(rt_degree);
   DoFHandler<dim>                dof_handler(triangulation);
 
   GridGenerator::hyper_cube(triangulation, 0., 1.);
@@ -99,9 +99,13 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
   deallog << "Numerical integration with " << quadrature.size()
           << " quadrature points" << std::endl;
 
+  std::cout << "aosiduo"<<std::endl;
   Vector<Number> dof_values(n_dofs_per_cell);
+  std::cout << "aosiduo\n";
   VectorTools::interpolate(dof_handler, f, dof_values);
-
+  int iii = 0;
+  
+  std::cout << iii<<"saaa\n";
   /// using FEValues as reference
   FEValues<dim> fe_values(fe,
                           quadrature,
@@ -109,6 +113,7 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
                             update_quadrature_points | update_JxW_values);
   AssertDimension(n_dofs_per_cell, dof_values.size());
   std::vector<Tensor<1, dim, Number>> quad_rvalues(quadrature.size());
+  std::cout << iii<<"agaa\n";
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
       fe_values.reinit(cell);
@@ -123,6 +128,7 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
         }
     }
 
+  std::cout << iii<<"adaa\n";
   /// actual values of function f
   std::vector<Tensor<1, dim, Number>> quad_avalues(quadrature.size());
   for (auto q = 0U; q < quadrature.size(); ++q)
@@ -132,11 +138,14 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
         quad_avalues[q][d] = f.value(q_points[q], d);
     }
 
+  std::cout << iii<<"qaaa\n";
   /// matrix-free interpolation via FEEvaluationImpl
   using namespace internal;
   MatrixFreeFunctions::ShapeInfo<Number> shape_info;
   QGauss<1>                              quadrature_1d(n_q_points_1d);
-  shape_info.reinit(quadrature_1d, fe, 0);
+  std::cout << iii<<"a5aa\n";
+  fe.fill_shapeInfo(shape_info,quadrature_1d);
+  std::cout << iii<<"aaa\n";
   FEEvaluationImpl<MatrixFreeFunctions::ElementType::raviart_thomas,
                    dim,
                    fe_degree,
@@ -145,13 +154,15 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
                    Number>
                         feev_impl;
   AlignedVector<Number> dof_values_lxco(dof_values.size());
-  // deallog << "dealii vs. lexicographic numbering" << std::endl;
+  std::cout << iii++<<"aaa\n";
+  // std::cout << "dealii vs. lexicographic numbering" << std::endl;
   for (auto i = 0U; i < dof_values.size(); ++i)
     {
       const auto ii = shape_info.lexicographic_numbering[i];
-      // deallog << i << " vs. " << ii << std::endl;
+      // std::cout << i << " vs. " << ii << std::endl;
       dof_values_lxco[ii] = dof_values[i];
     }
+  std::cout << iii++<<"aaa\n";
   AlignedVector<Number> quad_values_flat(quadrature.size() * dim);
   AlignedVector<Number> scratchpad(quadrature.size() * dim);
   feev_impl.evaluate(shape_info,
@@ -163,22 +174,26 @@ compare_interpolation(const Function<dim> &f, const std::string func_dscr)
                      true,
                      false,
                      false);
+  std::cout << iii++<<"baaa\n";
   std::vector<Tensor<1, dim, Number>> quad_values(quadrature.size());
   for (auto q = 0U; q < quadrature.size(); ++q)
     for (auto c = 0U; c < dim; ++c)
       quad_values[q][c] = quad_values_flat[quadrature.size() * c + q];
 
-  deallog << "Compare matrix-free interpolation (left) of " << func_dscr
+  std::cout << iii++<<"aaa\n";
+  std::cout << "Compare matrix-free interpolation (left) of " << func_dscr
           << " (right):" << std::endl;
   const auto numeric_eps =
     std::pow(10, std::log10(std::numeric_limits<Number>::epsilon()) / 2);
+  std::cout << iii++<<"aaa\n";
   for (auto q = 0U; q < quadrature.size(); ++q)
     {
-      deallog << quad_values[q] << " vs. " << quad_rvalues[q] << " vs. "
+      std::cout << quad_values[q] << " vs. " << quad_rvalues[q] << " vs. "
               << quad_avalues[q] << std::endl;
       Assert((quad_values[q] - quad_avalues[q]).norm() < numeric_eps,
              ExcMessage("Mismatching values."));
     }
+  std::cout << iii++<<"aaa\n";
 }
 
 

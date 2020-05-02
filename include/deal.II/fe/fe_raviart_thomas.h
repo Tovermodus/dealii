@@ -326,10 +326,9 @@ public:
   shape_value_component_as_tensor_product(const unsigned int i,
                                           const Point<dim> & p,
                                           const unsigned int component);
-  template <typename Number>
   void
-  fill_shapeInfo(internal::MatrixFreeFunctions::ShapeInfo<Number> &shapeInfo,
-                 Quadrature<1>                                     quad);
+  fill_shapeInfo(internal::MatrixFreeFunctions::ShapeInfo<double> &shapeInfo,
+                 Quadrature<1>                                     quad) const;
 
 private:
   /**

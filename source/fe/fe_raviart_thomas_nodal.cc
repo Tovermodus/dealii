@@ -48,14 +48,17 @@ FE_RaviartThomasNodal<dim>::FE_RaviartThomasNodal(const unsigned int deg)
                          PolynomialsRaviartThomas<dim>::n_polynomials(deg),
                          std::vector<bool>(dim, true)))
 {
+	std::cout << "ravinit\n";
   Assert(dim >= 2, ExcImpossibleInDim(dim));
   const unsigned int n_dofs = this->dofs_per_cell;
 
+	std::cout << "ravinit\n";
   this->mapping_kind = {mapping_raviart_thomas};
   // First, initialize the
   // generalized support points and
   // quadrature weights, since they
   // are required for interpolation.
+	std::cout << "ravinit\n";
   initialize_support_points(deg);
 
   // Now compute the inverse node matrix, generating the correct
@@ -147,6 +150,7 @@ template <int dim>
 void
 FE_RaviartThomasNodal<dim>::initialize_support_points(const unsigned int deg)
 {
+	std::cout << "lll\n";
   this->generalized_support_points.resize(this->dofs_per_cell);
   this->generalized_face_support_points.resize(this->dofs_per_face);
 
@@ -179,9 +183,16 @@ FE_RaviartThomasNodal<dim>::initialize_support_points(const unsigned int deg)
   
      int face_points_per_dimension = 2*std::pow(deg+1,dim-1);
 
+	std::cout << "lll\n";
   if (deg == 0)
+  {
+	  interior_points_per_dimension = 0;
+	  points_per_dimension = 2*face_points_per_dimension;
+	  compute_tensor_product_basis(deg);
+	  sort_generalized_support_points_lexicographically();
+	std::cout << "d0\n";
     return;
-  // In the interior, we need
+  }// In the interior, we need
   // anisotropic Gauss quadratures,
   // different for each direction.
   QGauss<1> high(deg + 1);
@@ -213,7 +224,9 @@ FE_RaviartThomasNodal<dim>::initialize_support_points(const unsigned int deg)
       for (unsigned int k = 0; k < quadrature->size(); ++k)
         this->generalized_support_points[current++] = quadrature->point(k);
     }
+	std::cout << "lll\n";
   points_per_dimension = interior_points_per_dimension + face_points_per_dimension;
+  std::cout << "hallooooo\n";
   compute_tensor_product_basis(deg);
   sort_generalized_support_points_lexicographically();
   Assert(current == this->dofs_per_cell, ExcInternalError());
@@ -1047,6 +1060,7 @@ FE_RaviartThomasNodal<dim>::compute_tensor_product_basis(const unsigned int deg)
     }
   // construct and number lexicographic support points, such that we can later
   // find the renumbering from normal numbering to lexicographic numbering
+  std::cout << "dimension" << dim << "\n";
   switch (dim)
     {
       case 1:
@@ -1079,111 +1093,127 @@ FE_RaviartThomasNodal<dim>::compute_tensor_product_basis(const unsigned int deg)
                 Point<dim>(i(0), j(0), k(0)));
         break;
     }
+  std::cout << "lexsize" << lexicographic_support_points.size()<<"\n";
 }
 
 using namespace internal::MatrixFreeFunctions;
 template <int dim>
-template <typename Number>
 void
 FE_RaviartThomasNodal<dim>::fill_shapeInfo(
-  internal::MatrixFreeFunctions::ShapeInfo<Number> &shapeInfo,
-  Quadrature<1>                                     quad)
+  internal::MatrixFreeFunctions::ShapeInfo<double> &shapeInfo,
+  Quadrature<1>                                     quad) const
 {
-  UnivariateShapeData<Number> lower;
-  UnivariateShapeData<Number> higher;
+	int iiiii = 0;
+	std::cout << iiiii++<<"nnn\n";
+  UnivariateShapeData<double> lower;
+  UnivariateShapeData<double> higher;
   lower.element_type              = tensor_symmetric;
   higher.element_type             = tensor_symmetric;
-  lower.fe_degree                 = nodal_basis_of_low.size() - 1;
-  higher.fe_degree                = nodal_basis_of_high.size() - 1;
+  std::cout << this->degree<<"FEGRAD\n";
+  lower.fe_degree                 = this->degree-1;
+  higher.fe_degree                = this->degree;
   lower.quadrature                = quad;
-  higher.quadrature               = quad;
+  higher.quadrature               = quad; 
   lower.n_q_points_1d             = quad.size();
   higher.n_q_points_1d            = quad.size();
   lower.nodal_at_cell_boundaries  = false;
   higher.nodal_at_cell_boundaries = true;
-  lower.shape_values =
-    AlignedVector<Number>((lower.fe_degree + 1) * lower.n_q_points_1d); //+1
+ 
+	std::cout << iiiii++<<"nnn\n";
+	lower.shape_values =
+    AlignedVector<double>((lower.fe_degree + 1) * lower.n_q_points_1d); //+1
   higher.shape_values =
-    AlignedVector<Number>((higher.fe_degree + 1) * higher.n_q_points_1d);
+    AlignedVector<double>((higher.fe_degree + 1) * higher.n_q_points_1d);
   lower.shape_gradients =
-    AlignedVector<Number>((lower.fe_degree + 1) * lower.n_q_points_1d);
+    AlignedVector<double>((lower.fe_degree + 1) * lower.n_q_points_1d);
   higher.shape_gradients =
-    AlignedVector<Number>((higher.fe_degree + 1) * higher.n_q_points_1d);
+    AlignedVector<double>((higher.fe_degree + 1) * higher.n_q_points_1d);
   lower.shape_hessians =
-    AlignedVector<Number>((lower.fe_degree + 1) * lower.n_q_points_1d);
+    AlignedVector<double>((lower.fe_degree + 1) * lower.n_q_points_1d);
   higher.shape_hessians =
-    AlignedVector<Number>((higher.fe_degree + 1) * higher.n_q_points_1d);
+    AlignedVector<double>((higher.fe_degree + 1) * higher.n_q_points_1d);
+	std::cout << iiiii++<<"nnn\n";
   lower.shape_data_on_face[0].resize(3 * (lower.fe_degree + 1));
   lower.shape_data_on_face[1].resize(3 * (lower.fe_degree + 1));
   higher.shape_data_on_face[0].resize(3 * (higher.fe_degree + 1));
   higher.shape_data_on_face[1].resize(3 * (higher.fe_degree + 1));
+	std::cout << iiiii++<<"nnn\n";
   for (std::size_t i = 0; i < (lower.fe_degree + 1); i++)
     {
       for (std::size_t j = 0; j < lower.n_q_points_1d; j++)
         {
           lower.shape_values[i * lower.n_q_points_1d + j] =
-            nodal_basis_of_low[i].value(lower.quadrature[j]);
+            nodal_basis_of_low[i].value(lower.quadrature.point(j)[0]);
           lower.shape_gradients[i * lower.n_q_points_1d + j] =
-            nodal_basis_of_low[i].derivative().value(lower.quadrature[j]);
+            nodal_basis_of_low[i].derivative().value(lower.quadrature.point(j)[0]);
           lower.shape_hessians[i * lower.n_q_points_1d + j] =
             nodal_basis_of_low[i].derivative().derivative().value(
-              lower.quadrature[j]);
+              lower.quadrature.point(j)[0]);
         }
       lower.shape_data_on_face[0][i] = nodal_basis_of_low[i].value(0);
       lower.shape_data_on_face[0][i + (lower.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().value(0);
       lower.shape_data_on_face[0][i + 2 * (lower.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().derivative().value(0);
-      lower.shape_data_on_face[1][i] = nodal_basis_of_low[i].value(1);
+      lower.shape_data_on_face[1][i] = nodal_basis_of_low[i].value(j);
       lower.shape_data_on_face[1][i + (lower.fe_degree + 1)] =
-        nodal_basis_of_low[i].derivative().value(1);
+        nodal_basis_of_low[i].derivative().value(j);
       lower.shape_data_on_face[1][i + 2 * (lower.fe_degree + 1)] =
-        nodal_basis_of_low[i].derivative().derivative().value(1);
+        nodal_basis_of_low[i].derivative().derivative().value(j);
     }
+	std::cout << iiiii++<<"nnn\n";
   for (std::size_t i = 0; i < (higher.fe_degree + 1); i++)
     {
       for (std::size_t j = 0; j < higher.n_q_points_1d; j++)
         {
           higher.shape_values[i * higher.n_q_points_1d + j] =
-            nodal_basis_of_low[i].value(higher.quadrature[j]);
+            nodal_basis_of_high[i].value(higher.quadrature.point(j)[0]);
           higher.shape_gradients[i * higher.n_q_points_1d + j] =
-            nodal_basis_of_low[i].derivative().value(higher.quadrature[j]);
+            nodal_basis_of_high[i].derivative().value(higher.quadrature.point(j)[0]);
           higher.shape_hessians[i * higher.n_q_points_1d + j] =
-            nodal_basis_of_low[i].derivative().derivative().value(
-              higher.quadrature[j]);
+            nodal_basis_of_high[i].derivative().derivative().value(
+              higher.quadrature.point(j)[0]);
         }
-      higher.shape_data_on_face[0][i] = nodal_basis_of_low[i].value(0);
+      higher.shape_data_on_face[0][i] = nodal_basis_of_high[i].value(0);
       higher.shape_data_on_face[0][i + (higher.fe_degree + 1)] =
-        nodal_basis_of_low[i].derivative().value(0);
+        nodal_basis_of_high[i].derivative().value(0);
       higher.shape_data_on_face[0][i + 2 * (higher.fe_degree + 1)] =
-        nodal_basis_of_low[i].derivative().derivative().value(0);
-      higher.shape_data_on_face[1][i] = nodal_basis_of_low[i].value(1);
+        nodal_basis_of_high[i].derivative().derivative().value(0);
+      higher.shape_data_on_face[1][i] = nodal_basis_of_high[i].value(j);
       higher.shape_data_on_face[1][i + (higher.fe_degree + 1)] =
-        nodal_basis_of_low[i].derivative().value(1);
+        nodal_basis_of_high[i].derivative().value(j);
       higher.shape_data_on_face[1][i + 2 * (higher.fe_degree + 1)] =
-        nodal_basis_of_low[i].derivative().derivative().value(1);
+        nodal_basis_of_high[i].derivative().derivative().value(j);
     }
+	std::cout << iiiii++<<"nnn\n";
   shapeInfo.data.emplace_back(lower);
   shapeInfo.data.emplace_back(higher);
   shapeInfo.lexicographic_numbering = lexicographic_transformation;
   shapeInfo.n_dimensions            = dim;
   shapeInfo.n_components            = dim;
+  shapeInfo.element_type = internal::MatrixFreeFunctions::ElementType::raviart_thomas;
   shapeInfo.dofs_per_component_on_cell =
     (higher.fe_degree + 1) * std::pow(lower.fe_degree, dim - 1);
+	std::cout << iiiii++<<"nnn\n";
   // dofs_per_component_on_face cannot be set since different faces have
   // different numbers, Maximum number is std::pow(lower.fe_degree,dim-1) other
   // faces have 0
-  shapeInfo.dofs_per_component_on_face = nullptr;
+  shapeInfo.dofs_per_component_on_face = -1;
   shapeInfo.n_q_points                 = std::pow(quad.size(), dim);
-  shapeInfo.n_q_points_on_face         = std::pow(quad.size(), dim - 1);
+  shapeInfo.n_q_points_face         = std::pow(quad.size(), dim - 1);
   shapeInfo.data_access.reinit(dim, dim);
+	std::cout << iiiii++<<"888nnn\n";
   for (std::size_t i = 0; i < dim; i++)
     {
       for (std::size_t j = 0; j < dim; j++)
         {
-          shapeInfo.data_access(i, j) = i == j ? &higher : &lower;
+		if(i == j)
+			shapeInfo.data_access(i,j) = &higher;
+		else
+			shapeInfo.data_access(i,j) = &lower;
         }
     }
+  std::cout << shapeInfo.lexicographic_numbering.size()<<"nnn\n";
 }
 
 
