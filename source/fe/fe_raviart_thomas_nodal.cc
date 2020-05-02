@@ -176,6 +176,8 @@ FE_RaviartThomasNodal<dim>::initialize_support_points(const unsigned int deg)
 
       current = this->dofs_per_face * GeometryInfo<dim>::faces_per_cell;
     }
+  
+     int face_points_per_dimension = 2*std::pow(deg+1,dim-1);
 
   if (deg == 0)
     return;
@@ -207,10 +209,11 @@ FE_RaviartThomasNodal<dim>::initialize_support_points(const unsigned int deg)
           default:
             Assert(false, ExcNotImplemented());
         }
-
+      interior_points_per_dimension = quadrature->size();
       for (unsigned int k = 0; k < quadrature->size(); ++k)
         this->generalized_support_points[current++] = quadrature->point(k);
     }
+  points_per_dimension = interior_points_per_dimension + face_points_per_dimension;
   compute_tensor_product_basis(deg);
   sort_generalized_support_points_lexicographically();
   Assert(current == this->dofs_per_cell, ExcInternalError());
@@ -1135,9 +1138,9 @@ FE_RaviartThomasNodal<dim>::fill_shapeInfo(
       lower.shape_data_on_face[1][i + (lower.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().value(1);
       lower.shape_data_on_face[1][i + 2 * (lower.fe_degree + 1)] =
-        higher.fe nodal_basis_of_low[i].derivative().derivative().value(1);
+        nodal_basis_of_low[i].derivative().derivative().value(1);
     }
-  for (std::size_t i = 0; i < (higher.de_degree + 1); i++)
+  for (std::size_t i = 0; i < (higher.fe_degree + 1); i++)
     {
       for (std::size_t j = 0; j < higher.n_q_points_1d; j++)
         {
@@ -1150,14 +1153,14 @@ FE_RaviartThomasNodal<dim>::fill_shapeInfo(
               higher.quadrature[j]);
         }
       higher.shape_data_on_face[0][i] = nodal_basis_of_low[i].value(0);
-      higher.shape_data_on_face[0][i + (higher.de_degree + 1)] =
+      higher.shape_data_on_face[0][i + (higher.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().value(0);
-      higher.shape_data_on_face[0][i + 2 * (higher.de_degree + 1)] =
+      higher.shape_data_on_face[0][i + 2 * (higher.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().derivative().value(0);
       higher.shape_data_on_face[1][i] = nodal_basis_of_low[i].value(1);
-      higher.shape_data_on_face[1][i + (higher.de_degree + 1)] =
+      higher.shape_data_on_face[1][i + (higher.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().value(1);
-      higher.shape_data_on_face[1][i + 2 * (higher.de_degree + 1)] =
+      higher.shape_data_on_face[1][i + 2 * (higher.fe_degree + 1)] =
         nodal_basis_of_low[i].derivative().derivative().value(1);
     }
   shapeInfo.data.emplace_back(lower);
